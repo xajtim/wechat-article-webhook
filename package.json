@@ -1,14 +1,13 @@
 {
   "name": "wechat-article-webhook",
   "version": "1.0.0",
-  "description": "公众号文章自动生成企微活码",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.0",
-    "wx-server-sdk": "^2.6.3"
+    "wx-server-sdk": "^2.6.3",
     "xml2js": "^0.6.0"
   }
 }
