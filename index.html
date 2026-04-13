@@ -14,7 +14,7 @@
       color: #1a1a1a;
     }
     .container {
-      max-width: 520px;
+      max-width: 640px;
       margin: 40px auto;
       background: #fff;
       border-radius: 12px;
@@ -31,6 +31,14 @@
       color: #888;
       text-align: center;
       margin-bottom: 28px;
+    }
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 24px 0 12px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
     .form-group {
       margin-bottom: 18px;
@@ -72,6 +80,15 @@
     }
     button:hover { background: #06ad56; }
     button:disabled { background: #a9e6c1; cursor: not-allowed; }
+    button.secondary {
+      background: #f2f2f2;
+      color: #333;
+      font-size: 13px;
+      padding: 8px 12px;
+      width: auto;
+    }
+    button.secondary:hover { background: #e6e6e6; }
+    button.secondary:disabled { background: #f7f7f7; color: #999; cursor: not-allowed; }
 
     .result {
       margin-top: 24px;
@@ -97,6 +114,57 @@
       color: #576b95;
       text-decoration: none;
     }
+
+    /* 草稿列表 */
+    .drafts-box {
+      border: 1px solid #eee;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .drafts-empty {
+      padding: 24px;
+      text-align: center;
+      font-size: 13px;
+      color: #999;
+    }
+    .draft-item {
+      padding: 12px 14px;
+      border-bottom: 1px solid #f2f2f2;
+      cursor: pointer;
+      transition: background .15s;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .draft-item:last-child { border-bottom: none; }
+    .draft-item:hover { background: #f9f9f9; }
+    .draft-main {
+      flex: 1;
+      min-width: 0;
+    }
+    .draft-title {
+      font-size: 14px;
+      color: #1a1a1a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .draft-meta {
+      font-size: 12px;
+      color: #999;
+      margin-top: 4px;
+    }
+    .draft-status {
+      flex-shrink: 0;
+      margin-left: 10px;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .draft-status.ok { background: #e8f8ef; color: #07c160; }
+    .draft-status.no { background: #f5f5f5; color: #999; }
+
     .steps {
       margin-top: 28px;
       padding-top: 20px;
@@ -129,10 +197,21 @@
     <h1>公众号文章活码管理</h1>
     <div class="subtitle">在发布文章前，自动生成企微活码并写入“阅读原文”</div>
 
+    <!-- 草稿列表 -->
+    <div class="section-title">
+      <span>📋 草稿箱列表</span>
+      <button class="secondary" id="refreshBtn" onclick="loadDrafts()">刷新列表</button>
+    </div>
+    <div class="drafts-box" id="draftsBox">
+      <div class="drafts-empty">点击上方“刷新列表”加载最新草稿</div>
+    </div>
+
+    <!-- 表单 -->
+    <div class="section-title">🛠️ 手动处理</div>
     <div class="form-group">
       <label>图文素材 MediaId <span class="badge warn">必填</span></label>
-      <input type="text" id="mediaId" placeholder="请输入永久图文素材的 media_id" />
-      <div class="hint">可在公众号后台“素材管理”中查看，或通过接口获取</div>
+      <input type="text" id="mediaId" placeholder="点击上方草稿自动填充，或手动输入" />
+      <div class="hint">点击草稿列表中的某一项即可自动填入</div>
     </div>
 
     <div class="form-group">
@@ -150,16 +229,66 @@
     <div class="steps">
       <h3>使用步骤</h3>
       <ol>
-        <li>在公众号后台创建好永久图文素材，复制其 <b>media_id</b></li>
-        <li>将 media_id 填入上方输入框，点击按钮</li>
-        <li>系统会自动生成企微活码，并写入该素材的“阅读原文”链接</li>
-        <li>返回公众号后台，找到该素材并<b>发布/群发</b></li>
+        <li>在公众号后台写好图文素材并<b>保存到草稿箱</b></li>
+        <li>回到本页面，点击<b>“刷新列表”</b>查看最新草稿</li>
+        <li>点击草稿列表中的某一项，自动填充 <b>media_id</b></li>
+        <li>点击<b>“生成活码并更新阅读原文”</b></li>
+        <li>返回公众号后台，找到该草稿并<b>发布/群发</b></li>
         <li>发布后用户点击“阅读原文”即可跳转到企微活码</li>
       </ol>
     </div>
   </div>
 
   <script>
+    async function loadDrafts() {
+      const box = document.getElementById('draftsBox');
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.textContent = '加载中...';
+      box.innerHTML = '<div class="drafts-empty">正在加载草稿...</div>';
+
+      try {
+        const res = await fetch('/api/drafts');
+        const data = await res.json();
+
+        if (!data.success || !data.data || !data.data.length) {
+          box.innerHTML = '<div class="drafts-empty">暂无草稿，请先在公众号后台保存图文素材到草稿箱</div>';
+          return;
+        }
+
+        box.innerHTML = '';
+        data.data.forEach(draft => {
+          const dateStr = draft.update_time ? new Date(draft.update_time * 1000).toLocaleString() : '';
+          const statusClass = draft.has_qrcode ? 'ok' : 'no';
+          const statusText = draft.has_qrcode ? '已配置活码' : '未配置活码';
+
+          const item = document.createElement('div');
+          item.className = 'draft-item';
+          item.onclick = () => selectDraft(draft.media_id, draft.title);
+          item.innerHTML = `
+            <div class="draft-main">
+              <div class="draft-title">${escapeHtml(draft.title)}</div>
+              <div class="draft-meta">${escapeHtml(dateStr)} · MediaId: ${escapeHtml(draft.media_id)}</div>
+            </div>
+            <div class="draft-status ${statusClass}">${statusText}</div>
+          `;
+          box.appendChild(item);
+        });
+      } catch (err) {
+        box.innerHTML = `<div class="drafts-empty" style="color:#d93025">加载失败：${escapeHtml(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '刷新列表';
+      }
+    }
+
+    function selectDraft(mediaId, title) {
+      document.getElementById('mediaId').value = mediaId;
+      document.getElementById('title').value = title || '';
+      // 简单高亮一下选中的项（通过重新渲染不太优雅，这里用简单滚动）
+      document.getElementById('mediaId').focus();
+    }
+
     async function handleProcess() {
       const mediaId = document.getElementById('mediaId').value.trim();
       const title = document.getElementById('title').value.trim();
@@ -169,7 +298,7 @@
       const resultBody = document.getElementById('resultBody');
 
       if (!mediaId) {
-        alert('请输入 media_id');
+        alert('请先选择或输入 media_id');
         return;
       }
 
@@ -195,6 +324,8 @@
             <div class="result-row"><b>活码链接：</b><a href="${escapeHtml(data.data.qrcode_url)}" target="_blank">${escapeHtml(data.data.qrcode_url)}</a></div>
             <div class="result-row" style="margin-top:8px;color:#666;">现在可以前往公众号后台发布该素材了。</div>
           `;
+          // 成功后刷新草稿列表，让状态变成“已配置”
+          loadDrafts();
         } else {
           result.className = 'result error';
           resultTitle.textContent = '❌ 处理失败';

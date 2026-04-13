@@ -290,6 +290,38 @@ app.post('/api/process', async (req, res) => {
   }
 });
 
+// API：获取草稿箱列表
+app.get('/api/drafts', async (req, res) => {
+  try {
+    const accessToken = await getWechatToken();
+    const result = await httpRequest({
+      url: `https://api.weixin.qq.com/cgi-bin/draft/batchget?access_token=${accessToken}`,
+      method: 'POST',
+      data: { offset: 0, count: 20, no_content: 1 }
+    });
+
+    if (result.errcode !== undefined && result.errcode !== 0) {
+      return res.status(500).json({ success: false, message: `获取草稿失败: ${result.errmsg}` });
+    }
+
+    const items = (result.item || []).map(it => {
+      const article = it.content && it.content.news_item && it.content.news_item[0] ? it.content.news_item[0] : {};
+      const contentSourceUrl = article.content_source_url || '';
+      return {
+        media_id: it.media_id,
+        title: article.title || '无标题',
+        update_time: it.update_time,
+        has_qrcode: contentSourceUrl.includes('work.weixin.qq.com')
+      };
+    });
+
+    return res.json({ success: true, data: items });
+  } catch (error) {
+    console.error('获取草稿失败:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // 健康检查
 app.get('/health', (req, res) => {
   res.json({
