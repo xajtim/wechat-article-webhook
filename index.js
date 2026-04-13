@@ -39,6 +39,38 @@ const tokenCache = {
   wechat: { token: null, expiresAt: 0 }
 };
 
+let serverIpCache = { ip: null, expiresAt: 0 };
+
+async function getServerIp() {
+  const now = Date.now();
+  if (serverIpCache.ip && serverIpCache.expiresAt > now) {
+    return serverIpCache.ip;
+  }
+
+  const ipApis = [
+    { url: 'https://api.ip.sb/geoip', extract: d => d.ip },
+    { url: 'https://httpbin.org/ip', extract: d => d.origin },
+    { url: 'https://ipinfo.io/json', extract: d => d.ip }
+  ];
+
+  for (const api of ipApis) {
+    try {
+      const res = await axios.get(api.url, { timeout: 5000 });
+      let ip = api.extract(res.data);
+      if (ip && typeof ip === 'string') {
+        // httpbin 的 origin 可能包含 ipv6 前缀，清理一下
+        ip = ip.split(',')[0].trim().replace(/^::ffff:/, '');
+        serverIpCache = { ip, expiresAt: now + 5 * 60 * 1000 };
+        return ip;
+      }
+    } catch (e) {
+      console.error(`IP查询失败 ${api.url}:`, e.message);
+    }
+  }
+
+  return null;
+}
+
 async function getWeworkToken() {
   const now = Date.now();
   if (tokenCache.wework.token && tokenCache.wework.expiresAt > now + 60000) {
@@ -318,6 +350,20 @@ app.get('/api/drafts', async (req, res) => {
     return res.json({ success: true, data: items });
   } catch (error) {
     console.error('获取草稿失败:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// API：获取当前服务器出口 IP
+app.get('/api/server-ip', async (req, res) => {
+  try {
+    const ip = await getServerIp();
+    if (ip) {
+      return res.json({ success: true, ip });
+    }
+    return res.status(503).json({ success: false, message: '无法获取服务器出口 IP' });
+  } catch (error) {
+    console.error('获取服务器IP失败:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 });
