@@ -115,7 +115,7 @@ async function getNewsMaterial(accessToken, mediaId) {
   return result;
 }
 
-async function generateContactWay(accessToken, title, mediaId) {
+async function generateContactWay(accessToken, title, mediaId, articleIndex = 0) {
   const result = await httpRequest({
     url: `https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_contact_way?access_token=${accessToken}`,
     method: 'POST',
@@ -126,20 +126,21 @@ async function generateContactWay(accessToken, title, mediaId) {
       remark: `公众号-${title}`,
       tags: [CONFIG.TAG_ID],
       skip_verify: true,
-      state: `article-${mediaId}`
+      state: `article-${mediaId}-${articleIndex}`
     }
   });
   if (result.errcode !== 0) throw new Error(`生成活码失败: ${result.errmsg}`);
   return result.config_id;
 }
 
-async function updateArticle(accessToken, mediaId, title, configId) {
+async function updateArticle(accessToken, mediaId, title, configId, articleIndex = 0) {
   const material = await getNewsMaterial(accessToken, mediaId);
   const items = material.news_item || [];
   if (!items.length) throw new Error('素材内容为空，请确认 media_id 对应的是永久图文素材');
+  if (articleIndex >= items.length) throw new Error(`文章索引 ${articleIndex} 超出范围，该素材共 ${items.length} 篇文章`);
 
   const qrCode = `https://work.weixin.qq.com/ca/cawcde${configId}`;
-  const original = items[0];
+  const original = items[articleIndex];
 
   const updatedArticle = {
     title: title || original.title,
@@ -158,7 +159,7 @@ async function updateArticle(accessToken, mediaId, title, configId) {
     method: 'POST',
     data: {
       media_id: mediaId,
-      index: 0,
+      index: articleIndex,
       articles: updatedArticle
     }
   });
@@ -281,7 +282,7 @@ app.all('/', async (req, res) => {
 // API：发布前处理（生成活码 + 更新阅读原文）
 app.post('/api/process', async (req, res) => {
   try {
-    const { media_id, title: manualTitle } = req.body;
+    const { media_id, title: manualTitle, index: articleIndex = 0 } = req.body;
     if (!media_id) {
       return res.status(400).json({ success: false, message: '缺少 media_id 参数' });
     }
@@ -301,11 +302,11 @@ app.post('/api/process', async (req, res) => {
     }
     if (!title) title = '未命名文章';
 
-    const configId = await generateContactWay(weworkToken, title, media_id);
-    console.log('活码生成成功, configId:', configId);
+    const configId = await generateContactWay(weworkToken, title, media_id, articleIndex);
+    console.log('活码生成成功, configId:', configId, 'index:', articleIndex);
 
-    const { qrCode, title: finalTitle } = await updateArticle(wechatToken, media_id, title, configId);
-    console.log('文章更新成功, qrCode:', qrCode);
+    const { qrCode, title: finalTitle } = await updateArticle(wechatToken, media_id, title, configId, articleIndex);
+    console.log('文章更新成功, qrCode:', qrCode, 'index:', articleIndex);
 
     return res.json({
       success: true,
@@ -313,7 +314,8 @@ app.post('/api/process', async (req, res) => {
         media_id,
         title: finalTitle,
         config_id: configId,
-        qrcode_url: qrCode
+        qrcode_url: qrCode,
+        index: articleIndex
       }
     });
   } catch (error) {

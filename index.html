@@ -272,6 +272,8 @@
       <input type="text" id="title" placeholder="留空将自动从素材中读取" />
     </div>
 
+    <input type="hidden" id="articleIndex" value="0" />
+
     <button id="btn" onclick="handleProcess()">生成活码并更新阅读原文</button>
 
     <div id="result" class="result">
@@ -354,7 +356,7 @@
             const statusClass = article.has_qrcode ? 'ok' : 'no';
             const statusText = article.has_qrcode ? '已配置活码' : '未配置活码';
             articlesHtml += `
-              <div class="draft-subitem" onclick="event.stopPropagation(); selectDraft('${escapeHtml(draft.media_id)}', '${escapeHtml(article.title)}')">
+              <div class="draft-subitem" onclick="event.stopPropagation(); selectDraft('${escapeHtml(draft.media_id)}', '${escapeHtml(article.title)}', ${article.index})">
                 <span class="draft-label">${escapeHtml(label)}</span>
                 <span class="draft-subtitle">${escapeHtml(article.title)}</span>
                 <span class="draft-status ${statusClass}">${statusText}</span>
@@ -379,16 +381,21 @@
       }
     }
 
-    function selectDraft(mediaId, title) {
+    function selectDraft(mediaId, title, index) {
       document.getElementById('mediaId').value = mediaId;
       document.getElementById('title').value = title || '';
-      // 简单高亮一下选中的项（通过重新渲染不太优雅，这里用简单滚动）
+      document.getElementById('articleIndex').value = index || 0;
+      const label = (!index || index === 0) ? '主推' : `辅推${index}`;
       document.getElementById('mediaId').focus();
+      // 简单提示
+      const btn = document.getElementById('btn');
+      btn.textContent = `生成活码并更新阅读原文（${label}）`;
     }
 
     async function handleProcess() {
       const mediaId = document.getElementById('mediaId').value.trim();
       const title = document.getElementById('title').value.trim();
+      const articleIndex = parseInt(document.getElementById('articleIndex').value || '0', 10);
       const btn = document.getElementById('btn');
       const result = document.getElementById('result');
       const resultTitle = document.getElementById('resultTitle');
@@ -399,8 +406,9 @@
         return;
       }
 
+      const label = (!articleIndex || articleIndex === 0) ? '主推' : `辅推${articleIndex}`;
       btn.disabled = true;
-      btn.textContent = '处理中，请稍候...';
+      btn.textContent = `处理中（${label}）...`;
       result.className = 'result';
       resultBody.innerHTML = '';
 
@@ -408,14 +416,16 @@
         const res = await fetch('/api/process', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ media_id: mediaId, title: title || undefined })
+          body: JSON.stringify({ media_id: mediaId, title: title || undefined, index: articleIndex })
         });
         const data = await res.json();
 
         if (data.success) {
+          const resLabel = (!data.data.index || data.data.index === 0) ? '主推' : `辅推${data.data.index}`;
           result.className = 'result success';
           resultTitle.textContent = '✅ 处理成功';
           resultBody.innerHTML = `
+            <div class="result-row"><b>位置：</b>${escapeHtml(resLabel)}</div>
             <div class="result-row"><b>标题：</b>${escapeHtml(data.data.title)}</div>
             <div class="result-row"><b>MediaId：</b>${escapeHtml(data.data.media_id)}</div>
             <div class="result-row"><b>活码链接：</b><a href="${escapeHtml(data.data.qrcode_url)}" target="_blank">${escapeHtml(data.data.qrcode_url)}</a></div>
@@ -434,7 +444,9 @@
         resultBody.innerHTML = `<div class="result-row">${escapeHtml(err.message)}</div>`;
       } finally {
         btn.disabled = false;
-        btn.textContent = '生成活码并更新阅读原文';
+        const curIndex = parseInt(document.getElementById('articleIndex').value || '0', 10);
+        const curLabel = (!curIndex || curIndex === 0) ? '主推' : `辅推${curIndex}`;
+        btn.textContent = `生成活码并更新阅读原文（${curLabel}）`;
       }
     }
 
