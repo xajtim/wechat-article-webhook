@@ -372,8 +372,7 @@ app.get('/api/contact-ways', async (req, res) => {
             link_name: detail.link.link_name || '',
             url: detail.link.url || '',
             create_time: detail.link.create_time,
-            skip_verify: detail.link.skip_verify,
-            mark_source: detail.link.mark_source
+            skip_verify: detail.link.skip_verify
           });
         }
       } catch (e) {
