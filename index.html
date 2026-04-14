@@ -338,31 +338,35 @@
       const btn = document.getElementById('refreshContactBtn');
       btn.disabled = true;
       btn.textContent = '加载中...';
-      box.innerHTML = '<div class="drafts-empty">正在加载活码列表...</div>';
+      box.innerHTML = '<div class="drafts-empty">正在加载获客链接...</div>';
 
       try {
         const res = await fetch('/api/contact-ways');
         const data = await res.json();
 
         if (!data.success || !data.data || !data.data.length) {
-          box.innerHTML = '<div class="drafts-empty">暂无活码记录</div>';
+          box.innerHTML = '<div class="drafts-empty">暂无获客链接</div>';
           return;
         }
 
         box.innerHTML = '';
         data.data.forEach(cw => {
+          const dateStr = cw.create_time ? new Date(cw.create_time * 1000).toLocaleString() : '';
           const item = document.createElement('div');
           item.className = 'draft-group';
           item.innerHTML = `
             <div class="draft-group-header">
-              <div class="draft-title">${escapeHtml(cw.remark) || '未命名活码'}</div>
-              <div class="draft-meta">员工：${escapeHtml((cw.user || []).join(', ') || '-')} · 免验证：${cw.skip_verify ? '是' : '否'}</div>
+              <div class="draft-title">${escapeHtml(cw.link_name) || '未命名链接'}</div>
+              <div class="draft-meta">${escapeHtml(dateStr)} · 标记来源：${cw.mark_source ? '是' : '否'} · 免验证：${cw.skip_verify ? '是' : '否'}</div>
             </div>
             <div class="draft-articles">
               <div class="draft-subitem">
                 <span class="draft-label">链接</span>
-                <span class="draft-subtitle" style="color:#576b95;"><a href="${escapeHtml(cw.qr_code)}" target="_blank">${escapeHtml(cw.qr_code)}</a></span>
+                <span class="draft-subtitle" style="color:#576b95;"><a href="${escapeHtml(cw.url)}" target="_blank">${escapeHtml(cw.url)}</a></span>
               </div>
+            </div>
+            <div style="padding:8px 0 0 8px;">
+              <button class="secondary" style="font-size:12px;padding:4px 10px;background:#ff4d4f;color:#fff;border:none;" onclick="event.stopPropagation(); deleteContactWay('${escapeHtml(cw.link_id)}')">删除</button>
             </div>
           `;
           box.appendChild(item);
@@ -372,6 +376,25 @@
       } finally {
         btn.disabled = false;
         btn.textContent = '刷新';
+      }
+    }
+
+    async function deleteContactWay(linkId) {
+      if (!confirm('确定删除该获客链接？删除后将无法恢复。')) return;
+      try {
+        const res = await fetch('/api/contact-ways/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ link_id: linkId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadContactWays();
+        } else {
+          alert('删除失败：' + (data.message || '未知错误'));
+        }
+      } catch (err) {
+        alert('删除失败：' + err.message);
       }
     }
 

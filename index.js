@@ -121,40 +121,30 @@ async function getDraft(accessToken, mediaId) {
   return result;
 }
 
-async function generateContactWay(accessToken, title, mediaId, articleIndex = 0) {
+async function createAcquisitionLink(accessToken, title, mediaId, articleIndex = 0) {
   const shortId = crypto.createHash('md5').update(mediaId).digest('hex').slice(0, 8);
-  const state = `a${shortId}${articleIndex}`;
+  const customerChannel = `a${shortId}${articleIndex}`;
   const result = await httpRequest({
-    url: `${PROXY_BASE}/wework-proxy/externalcontact/add_contact_way?access_token=${accessToken}`,
+    url: `${PROXY_BASE}/wework-proxy/externalcontact/customer_acquisition/create_link?access_token=${accessToken}`,
     method: 'POST',
     headers: { 'x-auth-key': PROXY_AUTH },
     data: {
-      type: 2,
-      scene: 2,
-      user: [CONFIG.USER_ID],
-      remark: `公众号-${title}`,
-      tags: [CONFIG.TAG_ID],
+      link_name: `公众号-${title}`,
+      range: {
+        user_list: [CONFIG.USER_ID]
+      },
       skip_verify: true,
-      state: state
+      mark_source: true
     }
   });
-  if (result.errcode !== 0) throw new Error(`生成活码失败: ${result.errmsg}`);
+  if (result.errcode !== 0) throw new Error(`生成获客链接失败: ${result.errmsg}`);
 
-  // 获取真正的二维码链接
-  const configId = result.config_id;
-  const getResult = await httpRequest({
-    url: `${PROXY_BASE}/wework-proxy/externalcontact/get_contact_way?access_token=${accessToken}`,
-    method: 'POST',
-    headers: { 'x-auth-key': PROXY_AUTH },
-    data: { config_id: configId }
-  });
-  if (getResult.errcode !== 0) throw new Error(`获取活码详情失败: ${getResult.errmsg}`);
+  // 在 URL 后拼接 customer_channel 用于追踪来源
+  const linkUrl = result.link && result.link.url ? result.link.url : '';
+  const linkId = result.link && result.link.link_id ? result.link.link_id : '';
+  const qrCode = linkUrl + '?customer_channel=' + encodeURIComponent(customerChannel);
 
-  const qrCode = getResult.contact_way && getResult.contact_way.qr_code
-    ? getResult.contact_way.qr_code
-    : `https://work.weixin.qq.com/ca/cawcde${configId}`;
-
-  return { configId, qrCode };
+  return { linkId, qrCode, customerChannel };
 }
 
 async function updateArticle(accessToken, mediaId, title, qrCode, articleIndex = 0) {
@@ -325,18 +315,18 @@ app.post('/api/process', async (req, res) => {
     }
     if (!title) title = '未命名文章';
 
-    const { configId, qrCode } = await generateContactWay(weworkToken, title, media_id, articleIndex);
-    console.log('活码生成成功, configId:', configId, 'qrCode:', qrCode, 'index:', articleIndex);
+    const { linkId, qrCode, customerChannel } = await createAcquisitionLink(weworkToken, title, media_id, articleIndex);
+    console.log('获客链接生成成功, linkId:', linkId, 'qrCode:', qrCode, 'channel:', customerChannel, 'index:', articleIndex);
 
     const { title: finalTitle } = await updateArticle(wechatToken, media_id, title, qrCode, articleIndex);
-    console.log('文章更新成功, qrCode:', qrCode, 'index:', articleIndex);
+    console.log('草稿更新成功, qrCode:', qrCode, 'index:', articleIndex);
 
     return res.json({
       success: true,
       data: {
         media_id,
         title: finalTitle,
-        config_id: configId,
+        link_id: linkId,
         qrcode_url: qrCode,
         index: articleIndex
       }
@@ -348,53 +338,77 @@ app.post('/api/process', async (req, res) => {
 });
 
 // 企微 Webhook - 接收消息服务器配置
-// API：获取已生成的活码列表
+// API：获取已生成的获客链接列表
 app.get('/api/contact-ways', async (req, res) => {
   try {
     const weworkToken = await getWeworkToken();
 
-    // 1. 拉取所有 config_id 列表
+    // 1. 拉取所有 link_id 列表
     const listResult = await httpRequest({
-      url: `${PROXY_BASE}/wework-proxy/externalcontact/list_contact_way?access_token=${weworkToken}`,
+      url: `${PROXY_BASE}/wework-proxy/externalcontact/customer_acquisition/list_link?access_token=${weworkToken}`,
       method: 'POST',
       headers: { 'x-auth-key': PROXY_AUTH },
       data: { limit: 100 }
     });
 
     if (listResult.errcode !== 0) {
-      return res.status(500).json({ success: false, message: `拉取活码列表失败: ${listResult.errmsg}` });
+      return res.status(500).json({ success: false, message: `拉取获客链接列表失败: ${listResult.errmsg}` });
     }
 
-    const configIds = listResult.contact_way || [];
+    const linkIds = listResult.link_id_list || [];
 
     // 2. 逐个获取详情
     const items = [];
-    for (const configId of configIds) {
+    for (const linkId of linkIds) {
       try {
         const detail = await httpRequest({
-          url: `${PROXY_BASE}/wework-proxy/externalcontact/get_contact_way?access_token=${weworkToken}`,
+          url: `${PROXY_BASE}/wework-proxy/externalcontact/customer_acquisition/get?access_token=${weworkToken}`,
           method: 'POST',
           headers: { 'x-auth-key': PROXY_AUTH },
-          data: { config_id: configId }
+          data: { link_id: linkId }
         });
-        if (detail.errcode === 0 && detail.contact_way) {
+        if (detail.errcode === 0 && detail.link) {
           items.push({
-            config_id: configId,
-            remark: detail.contact_way.remark || '',
-            qr_code: detail.contact_way.qr_code || '',
-            state: detail.contact_way.state || '',
-            skip_verify: detail.contact_way.skip_verify,
-            user: detail.contact_way.user || []
+            link_id: linkId,
+            link_name: detail.link.link_name || '',
+            url: detail.link.url || '',
+            create_time: detail.link.create_time,
+            skip_verify: detail.link.skip_verify,
+            mark_source: detail.link.mark_source
           });
         }
       } catch (e) {
-        console.error('获取活码详情失败:', configId, e.message);
+        console.error('获取获客链接详情失败:', linkId, e.message);
       }
     }
 
     return res.json({ success: true, data: items });
   } catch (error) {
-    console.error('获取活码列表失败:', error);
+    console.error('获取获客链接列表失败:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// API：删除获客链接
+app.post('/api/contact-ways/delete', async (req, res) => {
+  try {
+    const { link_id } = req.body;
+    if (!link_id) {
+      return res.status(400).json({ success: false, message: '缺少 link_id' });
+    }
+    const weworkToken = await getWeworkToken();
+    const result = await httpRequest({
+      url: `${PROXY_BASE}/wework-proxy/externalcontact/customer_acquisition/delete_link?access_token=${weworkToken}`,
+      method: 'POST',
+      headers: { 'x-auth-key': PROXY_AUTH },
+      data: { link_id }
+    });
+    if (result.errcode !== 0) {
+      return res.status(500).json({ success: false, message: `删除失败: ${result.errmsg}` });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('删除获客链接失败:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 });
@@ -489,7 +503,7 @@ app.get('/api/drafts', async (req, res) => {
     const result = await httpRequest({
       url: `https://api.weixin.qq.com/cgi-bin/draft/batchget?access_token=${accessToken}`,
       method: 'POST',
-      data: { offset: 0, count: 20, no_content: 1 }
+      data: { offset: 0, count: 20 }
     });
 
     if (result.errcode !== undefined && result.errcode !== 0) {
