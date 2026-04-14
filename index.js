@@ -19,6 +19,8 @@ const CONFIG = {
   WECHAT_SECRET: process.env.WECHAT_SECRET,
   WECHAT_TOKEN: process.env.WECHAT_TOKEN,
   ENCODING_AES_KEY: process.env.ENCODING_AES_KEY,
+  WEWORK_TOKEN: process.env.WEWORK_TOKEN,
+  WEWORK_AES_KEY: process.env.WEWORK_AES_KEY,
   TAG_ID: process.env.TAG_ID
 };
 
@@ -325,6 +327,74 @@ app.post('/api/process', async (req, res) => {
   } catch (error) {
     console.error('处理失败:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// 企微 Webhook - 接收消息服务器配置
+app.all('/api/wework-webhook', async (req, res) => {
+  try {
+    console.log('===== 收到企微请求 ===== Method:', req.method, 'Query:', req.query);
+
+    // GET 验证服务器
+    if (req.method === 'GET' && req.query.echostr) {
+      const { msg_signature, timestamp, nonce, echostr } = req.query;
+      const token = CONFIG.WEWORK_TOKEN;
+      const arr = [token, timestamp, nonce, echostr].sort();
+      const str = arr.join('');
+      const sha1 = crypto.createHash('sha1').update(str).digest('hex');
+
+      if (sha1 !== msg_signature) {
+        console.error('企微签名验证失败');
+        return res.status(403).send('Forbidden');
+      }
+
+      console.log('企微服务器验证成功');
+
+      // 如果有 AESKey，解密 echostr 后返回明文
+      if (CONFIG.WEWORK_AES_KEY) {
+        try {
+          const decrypted = decryptWechatMessage(echostr, CONFIG.WEWORK_AES_KEY);
+          return res.send(decrypted.message);
+        } catch (decryptErr) {
+          console.error('企微 echostr 解密失败:', decryptErr);
+          return res.status(500).send('decrypt error');
+        }
+      }
+
+      return res.send(echostr);
+    }
+
+    // POST 处理企微事件推送（如客户联系变更回调）
+    if (req.method === 'POST') {
+      let xmlData;
+      try {
+        xmlData = typeof req.body === 'string' ? await parseXML(req.body) : req.body;
+      } catch (parseErr) {
+        console.error('企微 XML 解析失败:', parseErr);
+        return res.send('success');
+      }
+
+      let msgData = xmlData.xml || xmlData;
+      if (msgData.Encrypt && CONFIG.WEWORK_AES_KEY) {
+        try {
+          const decrypted = decryptWechatMessage(msgData.Encrypt, CONFIG.WEWORK_AES_KEY);
+          const decryptedXML = await parseXML(decrypted.message);
+          msgData = decryptedXML.xml || decryptedXML;
+          console.log('企微解密后数据:', JSON.stringify(msgData));
+        } catch (e) {
+          console.error('企微解密失败:', e);
+        }
+      }
+
+      console.log('企微收到事件:', JSON.stringify(msgData));
+      // 目前只返回 success，避免企微重试
+      return res.send('success');
+    }
+
+    res.send('success');
+  } catch (error) {
+    console.error('企微处理失败:', error);
+    res.send('success');
   }
 });
 
