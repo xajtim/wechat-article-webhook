@@ -337,13 +337,15 @@ app.get('/api/drafts', async (req, res) => {
     }
 
     const items = (result.item || []).map(it => {
-      const article = it.content && it.content.news_item && it.content.news_item[0] ? it.content.news_item[0] : {};
-      const contentSourceUrl = article.content_source_url || '';
+      const articles = it.content && it.content.news_item ? it.content.news_item : [];
       return {
         media_id: it.media_id,
-        title: article.title || '无标题',
         update_time: it.update_time,
-        has_qrcode: contentSourceUrl.includes('work.weixin.qq.com')
+        articles: articles.map((article, idx) => ({
+          index: idx,
+          title: article.title || '无标题',
+          has_qrcode: (article.content_source_url || '').includes('work.weixin.qq.com')
+        }))
       };
     });
 
