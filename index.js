@@ -123,8 +123,9 @@ async function getNewsMaterial(accessToken, mediaId) {
 
 async function generateContactWay(accessToken, title, mediaId, articleIndex = 0) {
   const result = await httpRequest({
-    url: `https://qyapi.weixin.qq.com/cgi-bin/externalcontact/add_contact_way?access_token=${accessToken}`,
+    url: `${PROXY_BASE}/wework-proxy/externalcontact/add_contact_way?access_token=${accessToken}`,
     method: 'POST',
+    headers: { 'x-auth-key': PROXY_AUTH },
     data: {
       type: 2,
       scene: 2,

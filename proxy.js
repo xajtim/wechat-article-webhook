@@ -1,24 +1,14 @@
-/**
- * 微信 Token 代理服务
- * 运行在你自己的固定 IP 服务器上，解决微信云托管出口 IP 不稳定的问题
- *
- * 启动方式:
- *   npm install express axios
- *   nohup node proxy.js > proxy.log 2>&1 &
- */
 const express = require('express');
 const axios = require('axios');
 
 const app = express();
+app.use(express.json());
 
-// ========== 配置区 ==========
-// 建议从环境变量读取，防止密钥泄露在代码里
 const AUTH_KEY = process.env.PROXY_AUTH_KEY || 'XuAiJieProxy2024';
 const WECHAT_APPID = process.env.WECHAT_APPID;
 const WECHAT_SECRET = process.env.WECHAT_SECRET;
 const CORPID = process.env.CORPID;
 const CORPSECRET = process.env.CORPSECRET;
-// ===========================
 
 function checkAuth(req, res, next) {
   if (req.headers['x-auth-key'] !== AUTH_KEY) {
@@ -41,7 +31,7 @@ app.get('/wechat-token', checkAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: err.message,
-      detail: err.response?.data || null
+      detail: err.response && err.response.data ? err.response.data : null
     });
   }
 });
@@ -59,8 +49,28 @@ app.get('/wework-token', checkAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: err.message,
-      detail: err.response?.data || null
+      detail: err.response && err.response.data ? err.response.data : null
     });
+  }
+});
+
+// 通用企微 API 代理（解决客户联系等接口的 IP 白名单问题）
+app.all('/wework-proxy/*', checkAuth, async (req, res) => {
+  try {
+    const targetPath = req.params[0];
+    const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    const url = `https://qyapi.weixin.qq.com/cgi-bin/${targetPath}${search}`;
+    const result = await axios({
+      method: req.method,
+      url,
+      data: req.body,
+      timeout: 15000
+    });
+    res.status(result.status).json(result.data);
+  } catch (err) {
+    res.status(err.response ? err.response.status : 500).json(
+      err.response ? err.response.data : { error: err.message }
+    );
   }
 });
 
@@ -70,6 +80,5 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Token proxy running on port ${PORT}`);
-  console.log(`Auth key: ${AUTH_KEY}`);
+  console.log('Token proxy running on port ' + PORT);
 });
