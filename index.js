@@ -401,6 +401,22 @@ app.all('/api/wework-webhook', async (req, res) => {
   }
 });
 
+// 通用：格式化图文列表
+function formatNewsItems(items) {
+  return items.map(it => {
+    const articles = it.content && it.content.news_item ? it.content.news_item : [];
+    return {
+      media_id: it.media_id,
+      update_time: it.update_time,
+      articles: articles.map((article, idx) => ({
+        index: idx,
+        title: article.title || '无标题',
+        has_qrcode: (article.content_source_url || '').includes('work.weixin.qq.com')
+      }))
+    };
+  });
+}
+
 // API：获取草稿箱列表
 app.get('/api/drafts', async (req, res) => {
   try {
@@ -415,22 +431,30 @@ app.get('/api/drafts', async (req, res) => {
       return res.status(500).json({ success: false, message: `获取草稿失败: ${result.errmsg}` });
     }
 
-    const items = (result.item || []).map(it => {
-      const articles = it.content && it.content.news_item ? it.content.news_item : [];
-      return {
-        media_id: it.media_id,
-        update_time: it.update_time,
-        articles: articles.map((article, idx) => ({
-          index: idx,
-          title: article.title || '无标题',
-          has_qrcode: (article.content_source_url || '').includes('work.weixin.qq.com')
-        }))
-      };
-    });
-
-    return res.json({ success: true, data: items });
+    return res.json({ success: true, data: formatNewsItems(result.item || []) });
   } catch (error) {
     console.error('获取草稿失败:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// API：获取永久素材库列表（图文）
+app.get('/api/materials', async (req, res) => {
+  try {
+    const accessToken = await getWechatToken();
+    const result = await httpRequest({
+      url: `https://api.weixin.qq.com/cgi-bin/material/batchget_material?access_token=${accessToken}`,
+      method: 'POST',
+      data: { type: 'news', offset: 0, count: 20 }
+    });
+
+    if (result.errcode !== undefined && result.errcode !== 0) {
+      return res.status(500).json({ success: false, message: `获取素材失败: ${result.errmsg}` });
+    }
+
+    return res.json({ success: true, data: formatNewsItems(result.item || []) });
+  } catch (error) {
+    console.error('获取素材失败:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 });

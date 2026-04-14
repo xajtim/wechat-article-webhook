@@ -214,6 +214,27 @@
       margin-left: 6px;
     }
     .badge.warn { background: #fff3e0; color: #ef6c00; }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid #eee;
+      margin-bottom: 0;
+    }
+    .tab {
+      padding: 10px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      color: #666;
+      border-bottom: 2px solid transparent;
+      transition: all .15s;
+    }
+    .tab:hover { color: #333; }
+    .tab.active { color: #07c160; border-bottom-color: #07c160; font-weight: 500; }
+    .tab-hint {
+      font-size: 12px;
+      color: #999;
+      padding: 8px 0 16px 0;
+    }
+    .tab-hint b { color: #d46b08; }
     .ip-bar {
       background: #fff7e6;
       border: 1px solid #ffd591;
@@ -250,14 +271,19 @@
       <button onclick="checkProxy()">检测代理</button>
     </div>
 
-    <!-- 草稿列表 -->
+    <!-- 素材库 / 草稿箱 切换 -->
     <div class="section-title">
-      <span>📋 草稿箱列表</span>
-      <button class="secondary" id="refreshBtn" onclick="loadDrafts()">刷新列表</button>
+      <span id="listTitle">📁 图文素材库（可操作）</span>
+      <button class="secondary" id="refreshBtn" onclick="loadActiveList()">刷新列表</button>
+    </div>
+    <div class="tabs">
+      <div class="tab active" id="tabMaterials" onclick="switchTab('materials')">图文素材库</div>
+      <div class="tab" id="tabDrafts" onclick="switchTab('drafts')">草稿箱（仅查看）</div>
     </div>
     <div class="drafts-box" id="draftsBox">
-      <div class="drafts-empty">点击上方“刷新列表”加载最新草稿</div>
+      <div class="drafts-empty">点击上方“刷新列表”加载素材</div>
     </div>
+    <div class="tab-hint" id="tabHint">必须从<b>图文素材库</b>中选择，才能生成活码并更新阅读原文。草稿箱仅供查看。</div>
 
     <!-- 表单 -->
     <div class="section-title">🛠️ 手动处理</div>
@@ -295,28 +321,51 @@
   </div>
 
   <script>
-    async function checkProxy() {
-      const bar = document.getElementById('ipBar');
-      const text = document.getElementById('ipText');
-      text.textContent = '正在检测代理服务状态...';
-      bar.classList.remove('error');
+    let currentTab = 'materials';
 
-      try {
-        const res = await fetch('/health');
-        const data = await res.json();
-        if (data.status === 'ok') {
-          text.innerHTML = `✅ 已启用固定 IP 代理模式（<strong>175.178.219.156</strong>），公众号和企微白名单只需配置此 IP 一次即可。`;
-        } else {
-          throw new Error('代理服务异常');
-        }
-      } catch (err) {
-        text.textContent = '❌ 代理服务检测失败：' + err.message;
-        bar.classList.add('error');
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('tabMaterials').classList.toggle('active', tab === 'materials');
+      document.getElementById('tabDrafts').classList.toggle('active', tab === 'drafts');
+      document.getElementById('listTitle').innerHTML = tab === 'materials' ? '📁 图文素材库（可操作）' : '📋 草稿箱（仅查看）';
+      document.getElementById('tabHint').innerHTML = tab === 'materials'
+        ? '必须从<b>图文素材库</b>中选择，才能生成活码并更新阅读原文。草稿箱仅供查看。'
+        : '草稿箱的文章无法直接生成活码。如需操作，请先在公众号后台将草稿<b>保存为图文素材</b>，再到"图文素材库"中处理。';
+      loadActiveList();
+    }
+
+    async function loadActiveList() {
+      if (currentTab === 'materials') {
+        await loadMaterials();
+      } else {
+        await loadDrafts();
       }
     }
 
-    // 页面加载时自动检测
-    checkProxy();
+    async function loadMaterials() {
+      const box = document.getElementById('draftsBox');
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.textContent = '加载中...';
+      box.innerHTML = '<div class="drafts-empty">正在加载素材库...</div>';
+
+      try {
+        const res = await fetch('/api/materials');
+        const data = await res.json();
+
+        if (!data.success || !data.data || !data.data.length) {
+          box.innerHTML = '<div class="drafts-empty">素材库为空，请先在公众号后台"内容与互动 → 素材库"中新建永久图文素材</div>';
+          return;
+        }
+
+        renderDraftList(box, data.data);
+      } catch (err) {
+        box.innerHTML = `<div class="drafts-empty" style="color:#d93025">加载失败：${escapeHtml(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '刷新列表';
+      }
+    }
 
     async function loadDrafts() {
       const box = document.getElementById('draftsBox');
@@ -330,12 +379,22 @@
         const data = await res.json();
 
         if (!data.success || !data.data || !data.data.length) {
-          box.innerHTML = '<div class="drafts-empty">暂无草稿，请先在公众号后台保存图文素材到草稿箱</div>';
+          box.innerHTML = '<div class="drafts-empty">暂无草稿</div>';
           return;
         }
 
-        box.innerHTML = '';
-        data.data.forEach(draft => {
+        renderDraftList(box, data.data);
+      } catch (err) {
+        box.innerHTML = `<div class="drafts-empty" style="color:#d93025">加载失败：${escapeHtml(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '刷新列表';
+      }
+    }
+
+    function renderDraftList(box, items) {
+      box.innerHTML = '';
+      items.forEach(draft => {
           const dateStr = draft.update_time ? new Date(draft.update_time * 1000).toLocaleString() : '';
           const groupTitle = draft.articles[0] ? (draft.articles[0].title || '无标题') : '无标题';
 
@@ -364,12 +423,6 @@
           `;
           box.appendChild(item);
         });
-      } catch (err) {
-        box.innerHTML = `<div class="drafts-empty" style="color:#d93025">加载失败：${escapeHtml(err.message)}</div>`;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = '刷新列表';
-      }
     }
 
     function selectDraft(mediaId, title, index) {
@@ -422,8 +475,8 @@
             <div class="result-row"><b>活码链接：</b><a href="${escapeHtml(data.data.qrcode_url)}" target="_blank">${escapeHtml(data.data.qrcode_url)}</a></div>
             <div class="result-row" style="margin-top:8px;color:#666;">现在可以前往公众号后台发布该素材了。</div>
           `;
-          // 成功后刷新草稿列表，让状态变成“已配置”
-          loadDrafts();
+          // 成功后刷新当前列表，让状态变成“已配置”
+          loadActiveList();
         } else {
           result.className = 'result error';
           resultTitle.textContent = '❌ 处理失败';
