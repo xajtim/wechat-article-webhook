@@ -109,14 +109,14 @@ async function getWechatToken() {
   return result.access_token;
 }
 
-async function getNewsMaterial(accessToken, mediaId) {
+async function getDraft(accessToken, mediaId) {
   const result = await httpRequest({
-    url: `https://api.weixin.qq.com/cgi-bin/material/get_material?access_token=${accessToken}`,
+    url: `https://api.weixin.qq.com/cgi-bin/draft/get?access_token=${accessToken}`,
     method: 'POST',
     data: { media_id: mediaId }
   });
   if (result.errcode !== undefined && result.errcode !== 0) {
-    throw new Error(`获取素材失败: ${result.errmsg}`);
+    throw new Error(`获取草稿失败: ${result.errmsg}`);
   }
   return result;
 }
@@ -143,10 +143,10 @@ async function generateContactWay(accessToken, title, mediaId, articleIndex = 0)
 }
 
 async function updateArticle(accessToken, mediaId, title, configId, articleIndex = 0) {
-  const material = await getNewsMaterial(accessToken, mediaId);
-  const items = material.news_item || [];
-  if (!items.length) throw new Error('素材内容为空，请确认 media_id 对应的是永久图文素材');
-  if (articleIndex >= items.length) throw new Error(`文章索引 ${articleIndex} 超出范围，该素材共 ${items.length} 篇文章`);
+  const draft = await getDraft(accessToken, mediaId);
+  const items = draft.news_item || [];
+  if (!items.length) throw new Error('草稿内容为空，请确认 media_id 是草稿箱中的图文');
+  if (articleIndex >= items.length) throw new Error(`文章索引 ${articleIndex} 超出范围，该草稿共 ${items.length} 篇文章`);
 
   const qrCode = `https://work.weixin.qq.com/ca/cawcde${configId}`;
   const original = items[articleIndex];
@@ -164,7 +164,7 @@ async function updateArticle(accessToken, mediaId, title, configId, articleIndex
   };
 
   const result = await httpRequest({
-    url: `https://api.weixin.qq.com/cgi-bin/material/update_news?access_token=${accessToken}`,
+    url: `https://api.weixin.qq.com/cgi-bin/draft/update?access_token=${accessToken}`,
     method: 'POST',
     data: {
       media_id: mediaId,
@@ -173,7 +173,7 @@ async function updateArticle(accessToken, mediaId, title, configId, articleIndex
     }
   });
 
-  if (result.errcode !== 0) throw new Error(`更新文章失败: ${result.errmsg}`);
+  if (result.errcode !== 0) throw new Error(`更新草稿失败: ${result.errmsg}`);
   return { result, qrCode, title: updatedArticle.title };
 }
 
