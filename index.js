@@ -122,6 +122,8 @@ async function getNewsMaterial(accessToken, mediaId) {
 }
 
 async function generateContactWay(accessToken, title, mediaId, articleIndex = 0) {
+  const shortId = crypto.createHash('md5').update(mediaId).digest('hex').slice(0, 8);
+  const state = `a${shortId}${articleIndex}`;
   const result = await httpRequest({
     url: `${PROXY_BASE}/wework-proxy/externalcontact/add_contact_way?access_token=${accessToken}`,
     method: 'POST',
@@ -133,7 +135,7 @@ async function generateContactWay(accessToken, title, mediaId, articleIndex = 0)
       remark: `公众号-${title}`,
       tags: [CONFIG.TAG_ID],
       skip_verify: true,
-      state: `article-${mediaId}-${articleIndex}`
+      state: state
     }
   });
   if (result.errcode !== 0) throw new Error(`生成活码失败: ${result.errmsg}`);
