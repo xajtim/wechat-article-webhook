@@ -246,8 +246,8 @@
     <div class="subtitle">在发布文章前，自动生成企微活码并写入“阅读原文”</div>
 
     <div class="ip-bar" id="ipBar">
-      <span id="ipText">正在获取服务器出口 IP...</span>
-      <button onclick="loadServerIp()">刷新 IP</button>
+      <span id="ipText">正在检测代理服务状态...</span>
+      <button onclick="checkProxy()">检测代理</button>
     </div>
 
     <!-- 草稿列表 -->
@@ -295,37 +295,28 @@
   </div>
 
   <script>
-    async function loadServerIp() {
+    async function checkProxy() {
       const bar = document.getElementById('ipBar');
       const text = document.getElementById('ipText');
-      text.textContent = '正在检测服务器出口 IP（可能需要几秒钟）...';
+      text.textContent = '正在检测代理服务状态...';
       bar.classList.remove('error');
 
-      const ips = new Set();
-      // 连续探测 4 次，收集所有不同的出口 IP
-      for (let i = 0; i < 4; i++) {
-        try {
-          const res = await fetch('/api/server-ip?t=' + Date.now() + '_' + i);
-          const data = await res.json();
-          if (data.success && data.ip) {
-            ips.add(data.ip);
-          }
-        } catch (e) {
-          // 忽略单次失败
+      try {
+        const res = await fetch('/health');
+        const data = await res.json();
+        if (data.status === 'ok') {
+          text.innerHTML = `✅ 已启用固定 IP 代理模式（<strong>175.178.219.156</strong>），公众号和企微白名单只需配置此 IP 一次即可。`;
+        } else {
+          throw new Error('代理服务异常');
         }
-      }
-
-      if (ips.size > 0) {
-        const ipList = Array.from(ips).join('，');
-        text.innerHTML = `检测到服务器出口 IP：<strong>${escapeHtml(ipList)}</strong>，请确保以上 IP 全部已添加到公众号后台的 IP 白名单中。`;
-      } else {
-        text.textContent = '获取 IP 失败，请稍后点击“刷新 IP”重试。';
+      } catch (err) {
+        text.textContent = '❌ 代理服务检测失败：' + err.message;
         bar.classList.add('error');
       }
     }
 
-    // 页面加载时自动获取 IP
-    loadServerIp();
+    // 页面加载时自动检测
+    checkProxy();
 
     async function loadDrafts() {
       const box = document.getElementById('draftsBox');

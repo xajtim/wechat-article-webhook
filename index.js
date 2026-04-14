@@ -22,6 +22,10 @@ const CONFIG = {
   TAG_ID: process.env.TAG_ID
 };
 
+// 固定 IP 代理配置（解决云托管出口 IP 漂移问题）
+const PROXY_BASE = process.env.PROXY_BASE || 'http://175.178.219.156:3001';
+const PROXY_AUTH = process.env.PROXY_AUTH || 'XuAiJieProxy2024';
+
 // =================== 工具函数 ===================
 
 async function httpRequest(config) {
@@ -77,9 +81,9 @@ async function getWeworkToken() {
     return tokenCache.wework.token;
   }
   const result = await httpRequest({
-    url: 'https://qyapi.weixin.qq.com/cgi-bin/gettoken',
+    url: `${PROXY_BASE}/wework-token`,
     method: 'GET',
-    params: { corpid: CONFIG.CORPID, corpsecret: CONFIG.CORPSECRET }
+    headers: { 'x-auth-key': PROXY_AUTH }
   });
   if (result.errcode !== 0) throw new Error(`企微Token错误: ${result.errmsg}`);
   tokenCache.wework.token = result.access_token;
@@ -93,9 +97,9 @@ async function getWechatToken() {
     return tokenCache.wechat.token;
   }
   const result = await httpRequest({
-    url: 'https://api.weixin.qq.com/cgi-bin/token',
+    url: `${PROXY_BASE}/wechat-token`,
     method: 'GET',
-    params: { grant_type: 'client_credential', appid: CONFIG.WECHAT_APPID, secret: CONFIG.WECHAT_SECRET }
+    headers: { 'x-auth-key': PROXY_AUTH }
   });
   if (!result.access_token) throw new Error(`公众号Token错误: ${JSON.stringify(result)}`);
   tokenCache.wechat.token = result.access_token;
