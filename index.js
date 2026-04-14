@@ -133,8 +133,7 @@ async function createAcquisitionLink(accessToken, title, mediaId, articleIndex =
       range: {
         user_list: [CONFIG.USER_ID]
       },
-      skip_verify: true,
-      mark_source: true
+      skip_verify: true
     }
   });
   if (result.errcode !== 0) throw new Error(`生成获客链接失败: ${result.errmsg}`);
