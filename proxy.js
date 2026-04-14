@@ -55,14 +55,18 @@ app.get('/wework-token', checkAuth, async (req, res) => {
 });
 
 // 通用企微 API 代理（解决客户联系等接口的 IP 白名单问题）
-app.all('/wework-proxy/*', checkAuth, async (req, res) => {
+app.use('/wework-proxy', checkAuth, async (req, res) => {
   try {
-    const targetPath = req.params[0];
-    const search = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-    const url = `https://qyapi.weixin.qq.com/cgi-bin/${targetPath}${search}`;
+    let subPath = req.path;
+    if (subPath.indexOf('/wework-proxy') === 0) {
+      subPath = subPath.replace('/wework-proxy', '');
+    }
+    if (subPath.charAt(0) !== '/') { subPath = '/' + subPath; }
+    const search = req.url.indexOf('?') >= 0 ? req.url.slice(req.url.indexOf('?')) : '';
+    const url = 'https://qyapi.weixin.qq.com/cgi-bin' + subPath + search;
     const result = await axios({
       method: req.method,
-      url,
+      url: url,
       data: req.body,
       timeout: 15000
     });
