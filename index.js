@@ -348,6 +348,57 @@ app.post('/api/process', async (req, res) => {
 });
 
 // 企微 Webhook - 接收消息服务器配置
+// API：获取已生成的活码列表
+app.get('/api/contact-ways', async (req, res) => {
+  try {
+    const weworkToken = await getWeworkToken();
+
+    // 1. 拉取所有 config_id 列表
+    const listResult = await httpRequest({
+      url: `${PROXY_BASE}/wework-proxy/externalcontact/list_contact_way?access_token=${weworkToken}`,
+      method: 'POST',
+      headers: { 'x-auth-key': PROXY_AUTH },
+      data: { limit: 100 }
+    });
+
+    if (listResult.errcode !== 0) {
+      return res.status(500).json({ success: false, message: `拉取活码列表失败: ${listResult.errmsg}` });
+    }
+
+    const configIds = listResult.contact_way || [];
+
+    // 2. 逐个获取详情
+    const items = [];
+    for (const configId of configIds) {
+      try {
+        const detail = await httpRequest({
+          url: `${PROXY_BASE}/wework-proxy/externalcontact/get_contact_way?access_token=${weworkToken}`,
+          method: 'POST',
+          headers: { 'x-auth-key': PROXY_AUTH },
+          data: { config_id: configId }
+        });
+        if (detail.errcode === 0 && detail.contact_way) {
+          items.push({
+            config_id: configId,
+            remark: detail.contact_way.remark || '',
+            qr_code: detail.contact_way.qr_code || '',
+            state: detail.contact_way.state || '',
+            skip_verify: detail.contact_way.skip_verify,
+            user: detail.contact_way.user || []
+          });
+        }
+      } catch (e) {
+        console.error('获取活码详情失败:', configId, e.message);
+      }
+    }
+
+    return res.json({ success: true, data: items });
+  } catch (error) {
+    console.error('获取活码列表失败:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.all('/api/wework-webhook', async (req, res) => {
   try {
     console.log('===== 收到企微请求 ===== Method:', req.method, 'Query:', req.query);

@@ -265,6 +265,15 @@
     </div>
     <div class="tab-hint" id="tabHint">从草稿箱中选择文章，生成活码并更新阅读原文，然后在公众号后台发布。</div>
 
+    <!-- 已生成活码 -->
+    <div class="section-title">
+      <span>🔗 已生成活码</span>
+      <button class="secondary" id="refreshContactBtn" onclick="loadContactWays()">刷新</button>
+    </div>
+    <div class="drafts-box" id="contactWaysBox">
+      <div class="drafts-empty">点击上方“刷新”查看已生成的企微活码</div>
+    </div>
+
     <!-- 表单 -->
     <div class="section-title">🛠️ 手动处理</div>
     <div class="form-group">
@@ -323,6 +332,48 @@
 
     // 页面加载时自动检测
     checkProxy();
+
+    async function loadContactWays() {
+      const box = document.getElementById('contactWaysBox');
+      const btn = document.getElementById('refreshContactBtn');
+      btn.disabled = true;
+      btn.textContent = '加载中...';
+      box.innerHTML = '<div class="drafts-empty">正在加载活码列表...</div>';
+
+      try {
+        const res = await fetch('/api/contact-ways');
+        const data = await res.json();
+
+        if (!data.success || !data.data || !data.data.length) {
+          box.innerHTML = '<div class="drafts-empty">暂无活码记录</div>';
+          return;
+        }
+
+        box.innerHTML = '';
+        data.data.forEach(cw => {
+          const item = document.createElement('div');
+          item.className = 'draft-group';
+          item.innerHTML = `
+            <div class="draft-group-header">
+              <div class="draft-title">${escapeHtml(cw.remark) || '未命名活码'}</div>
+              <div class="draft-meta">员工：${escapeHtml((cw.user || []).join(', ') || '-')} · 免验证：${cw.skip_verify ? '是' : '否'}</div>
+            </div>
+            <div class="draft-articles">
+              <div class="draft-subitem">
+                <span class="draft-label">链接</span>
+                <span class="draft-subtitle" style="color:#576b95;"><a href="${escapeHtml(cw.qr_code)}" target="_blank">${escapeHtml(cw.qr_code)}</a></span>
+              </div>
+            </div>
+          `;
+          box.appendChild(item);
+        });
+      } catch (err) {
+        box.innerHTML = `<div class="drafts-empty" style="color:#d93025">加载失败：${escapeHtml(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '刷新';
+      }
+    }
 
     async function loadDrafts() {
       const box = document.getElementById('draftsBox');
@@ -432,8 +483,9 @@
             <div class="result-row"><b>活码链接：</b><a href="${escapeHtml(data.data.qrcode_url)}" target="_blank">${escapeHtml(data.data.qrcode_url)}</a></div>
             <div class="result-row" style="margin-top:8px;color:#666;">现在可以前往公众号后台发布该素材了。</div>
           `;
-          // 成功后刷新草稿列表，让状态变成“已配置”
+          // 成功后刷新草稿列表和活码列表
           loadDrafts();
+          loadContactWays();
         } else {
           result.className = 'result error';
           resultTitle.textContent = '❌ 处理失败';
