@@ -139,16 +139,30 @@ async function generateContactWay(accessToken, title, mediaId, articleIndex = 0)
     }
   });
   if (result.errcode !== 0) throw new Error(`生成活码失败: ${result.errmsg}`);
-  return result.config_id;
+
+  // 获取真正的二维码链接
+  const configId = result.config_id;
+  const getResult = await httpRequest({
+    url: `${PROXY_BASE}/wework-proxy/externalcontact/get_contact_way?access_token=${accessToken}`,
+    method: 'POST',
+    headers: { 'x-auth-key': PROXY_AUTH },
+    data: { config_id: configId }
+  });
+  if (getResult.errcode !== 0) throw new Error(`获取活码详情失败: ${getResult.errmsg}`);
+
+  const qrCode = getResult.contact_way && getResult.contact_way.qr_code
+    ? getResult.contact_way.qr_code
+    : `https://work.weixin.qq.com/ca/cawcde${configId}`;
+
+  return { configId, qrCode };
 }
 
-async function updateArticle(accessToken, mediaId, title, configId, articleIndex = 0) {
+async function updateArticle(accessToken, mediaId, title, qrCode, articleIndex = 0) {
   const draft = await getDraft(accessToken, mediaId);
   const items = draft.news_item || [];
   if (!items.length) throw new Error('草稿内容为空，请确认 media_id 是草稿箱中的图文');
   if (articleIndex >= items.length) throw new Error(`文章索引 ${articleIndex} 超出范围，该草稿共 ${items.length} 篇文章`);
 
-  const qrCode = `https://work.weixin.qq.com/ca/cawcde${configId}`;
   const original = items[articleIndex];
 
   const updatedArticle = {
@@ -311,10 +325,10 @@ app.post('/api/process', async (req, res) => {
     }
     if (!title) title = '未命名文章';
 
-    const configId = await generateContactWay(weworkToken, title, media_id, articleIndex);
-    console.log('活码生成成功, configId:', configId, 'index:', articleIndex);
+    const { configId, qrCode } = await generateContactWay(weworkToken, title, media_id, articleIndex);
+    console.log('活码生成成功, configId:', configId, 'qrCode:', qrCode, 'index:', articleIndex);
 
-    const { qrCode, title: finalTitle } = await updateArticle(wechatToken, media_id, title, configId, articleIndex);
+    const { title: finalTitle } = await updateArticle(wechatToken, media_id, title, qrCode, articleIndex);
     console.log('文章更新成功, qrCode:', qrCode, 'index:', articleIndex);
 
     return res.json({
