@@ -387,13 +387,15 @@ app.get('/api/contact-ways', async (req, res) => {
   }
 });
 
-// API：删除获客链接
+// API：删除获客链接并可选清空草稿阅读原文
 app.post('/api/contact-ways/delete', async (req, res) => {
   try {
-    const { link_id } = req.body;
+    const { link_id, media_id, index: articleIndex = 0 } = req.body;
     if (!link_id) {
       return res.status(400).json({ success: false, message: '缺少 link_id' });
     }
+
+    // 1. 删除获客链接
     const weworkToken = await getWeworkToken();
     const result = await httpRequest({
       url: `${PROXY_BASE}/wework-proxy/externalcontact/customer_acquisition/delete_link?access_token=${weworkToken}`,
@@ -404,6 +406,43 @@ app.post('/api/contact-ways/delete', async (req, res) => {
     if (result.errcode !== 0) {
       return res.status(500).json({ success: false, message: `删除失败: ${result.errmsg}` });
     }
+
+    // 2. 如果提供了 media_id，同步清空草稿的 content_source_url
+    if (media_id) {
+      try {
+        const wechatToken = await getWechatToken();
+        const draft = await getDraft(wechatToken, media_id);
+        const items = draft.news_item || [];
+        if (items.length && articleIndex < items.length) {
+          const original = items[articleIndex];
+          const updatedArticle = {
+            title: original.title || '',
+            thumb_media_id: original.thumb_media_id,
+            show_cover_pic: original.show_cover_pic,
+            author: original.author || '',
+            digest: original.digest || '',
+            content: original.content,
+            content_source_url: '',
+            need_open_comment: original.need_open_comment || 0,
+            only_fans_can_comment: original.only_fans_can_comment || 0
+          };
+          await httpRequest({
+            url: `https://api.weixin.qq.com/cgi-bin/draft/update?access_token=${wechatToken}`,
+            method: 'POST',
+            data: {
+              media_id: media_id,
+              index: articleIndex,
+              articles: updatedArticle
+            }
+          });
+          console.log('已清空草稿阅读原文:', media_id, 'index:', articleIndex);
+        }
+      } catch (clearErr) {
+        console.error('清空草稿阅读原文失败:', clearErr);
+        // 删除链接已成功，此处失败不阻断整体流程
+      }
+    }
+
     return res.json({ success: true });
   } catch (error) {
     console.error('删除获客链接失败:', error);

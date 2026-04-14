@@ -382,14 +382,22 @@
     async function deleteContactWay(linkId) {
       if (!confirm('确定删除该获客链接？删除后将无法恢复。')) return;
       try {
+        const mediaId = document.getElementById('mediaId').value.trim();
+        const articleIndex = parseInt(document.getElementById('articleIndex').value || '0', 10);
+        const payload = { link_id: linkId };
+        if (mediaId) {
+          payload.media_id = mediaId;
+          payload.index = articleIndex;
+        }
         const res = await fetch('/api/contact-ways/delete', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ link_id: linkId })
+          body: JSON.stringify(payload)
         });
         const data = await res.json();
         if (data.success) {
           loadContactWays();
+          if (mediaId) loadDrafts();
         } else {
           alert('删除失败：' + (data.message || '未知错误'));
         }
