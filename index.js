@@ -236,6 +236,12 @@ app.get('/MP_verify_LJGVK8cPb9SjFcm0.txt', (req, res) => {
   res.send('LJGVK8cPb9SjFcm0');
 });
 
+// 企业微信可信域名验证文件
+app.get('/WW_verify_N2CprkiQudCVZNkU.txt', (req, res) => {
+  res.type('text/plain');
+  res.send('eN2CprkiQudCVZNkU');
+});
+
 // =================== 路由 ===================
 
 // Webhook + 首页
