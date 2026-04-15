@@ -550,11 +550,11 @@
           info.textContent = '已登录：' + data.openid.slice(0, 10) + '...';
           btn.style.display = 'inline-block';
         } else {
-          info.innerHTML = '<a href="/" style="color:#576b95;text-decoration:none;">🔒 未登录，点击前往登录</a>';
+          info.innerHTML = '<a href="/auth/login" style="color:#576b95;text-decoration:none;">🔒 微信登录</a> · <a href="/auth/password" style="color:#576b95;text-decoration:none;">密码登录</a>';
           btn.style.display = 'none';
         }
       } catch (e) {
-        document.getElementById('userInfo').innerHTML = '<a href="/" style="color:#576b95;text-decoration:none;">🔒 未登录，点击前往登录</a>';
+        document.getElementById('userInfo').innerHTML = '<a href="/auth/login" style="color:#576b95;text-decoration:none;">🔒 微信登录</a> · <a href="/auth/password" style="color:#576b95;text-decoration:none;">密码登录</a>';
         document.getElementById('logoutBtn').style.display = 'none';
       }
     }
