@@ -561,12 +561,31 @@ app.get('/auth/login', (req, res) => {
   res.redirect(url);
 });
 
+// 防止同一 code 被并发重复请求
+const processingCodes = new Map();
+
 // 2. 授权回调：用 code 换 openid
 app.get('/auth/callback', async (req, res) => {
   const { code } = req.query;
+
+  // 已经登录过了，直接回首页
+  if (req.session && req.session.openid) {
+    return res.redirect('/');
+  }
+
   if (!code) {
     return res.status(400).send('<h2>授权失败</h2><p>未获取到 code，请重试。</p>');
   }
+
+  // 简单内存锁：同一个 code 正在处理中，等 3 秒再试
+  if (processingCodes.has(code)) {
+    await new Promise(r => setTimeout(r, 3000));
+    if (req.session && req.session.openid) {
+      return res.redirect('/');
+    }
+  }
+
+  processingCodes.set(code, true);
 
   try {
     const wxRes = await axios.get('https://api.weixin.qq.com/sns/oauth2/access_token', {
@@ -609,8 +628,69 @@ app.get('/auth/callback', async (req, res) => {
     res.redirect('/');
   } catch (err) {
     console.error('登录回调处理失败:', err.message);
+
+    // 如果是 code 已被使用，且 session 里已经有 openid，说明第一次请求成功了，直接跳转
+    if (err.message && err.message.includes('code been used') && req.session && req.session.openid) {
+      return res.redirect('/');
+    }
+
     res.status(500).send(`<h2>登录失败</h2><p>${err.message}</p><p><a href="/">返回首页</a></p>`);
+  } finally {
+    processingCodes.delete(code);
   }
+});
+
+// PC 端备用：管理员密码登录
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+app.get('/auth/password', (req, res) => {
+  if (!ADMIN_PASSWORD) {
+    return res.status(403).send(`
+      <h2>未启用密码登录</h2>
+      <p>管理员未配置 <code>ADMIN_PASSWORD</code> 环境变量。</p>
+      <p><a href="/auth/login">返回微信登录</a></p>
+    `);
+  }
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="zh-CN">
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员登录</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; background: #f5f6f7; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+      .box { background: #fff; padding: 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); width: 320px; }
+      h2 { margin: 0 0 20px 0; font-size: 18px; text-align: center; }
+      input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; margin-bottom: 12px; box-sizing: border-box; }
+      button { width: 100%; padding: 10px; background: #07c160; color: #fff; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; }
+      .hint { font-size: 12px; color: #999; text-align: center; margin-top: 12px; }
+    </style></head>
+    <body>
+      <div class="box">
+        <h2>管理员密码登录</h2>
+        <form method="POST" action="/auth/password">
+          <input type="password" name="password" placeholder="请输入管理员密码" required />
+          <button type="submit">登录</button>
+        </form>
+        <div class="hint"><a href="/auth/login" style="color:#576b95;text-decoration:none;">使用微信登录</a></div>
+      </div>
+    </body></html>
+  `);
+});
+
+app.post('/auth/password', express.urlencoded({ extended: true }), (req, res) => {
+  if (!ADMIN_PASSWORD) {
+    return res.status(403).send('未启用密码登录');
+  }
+  const { password } = req.body || {};
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).send(`
+      <h2>密码错误</h2>
+      <p><a href="/auth/password">重新输入</a></p>
+    `);
+  }
+  req.session.openid = 'admin-password';
+  console.log('管理员密码登录成功');
+  res.redirect('/');
 });
 
 // 3. 退出登录
