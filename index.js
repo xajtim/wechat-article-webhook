@@ -4,8 +4,15 @@ const xml2js = require('xml2js');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const cookieSession = require('cookie-session');
 
 const app = express();
+
+app.use(cookieSession({
+  name: 'session',
+  keys: [process.env.SESSION_SECRET || 'wechat-article-webhook-secret-key'],
+  maxAge: 24 * 60 * 60 * 1000 // 24 小时
+}));
 
 app.use(express.text({ type: 'text/xml', limit: '10mb' }));
 app.use(express.json());
@@ -223,6 +230,12 @@ function decryptWechatMessage(encrypted, aesKey) {
   }
 }
 
+// 微信公众号网页授权域名验证文件
+app.get('/MP_verify_LJGVK8cPb9SjFcm0.txt', (req, res) => {
+  res.type('text/plain');
+  res.send('LJGVK8cPb9SjFcm0');
+});
+
 // =================== 路由 ===================
 
 // Webhook + 首页
@@ -240,8 +253,11 @@ app.all('/', async (req, res) => {
       return res.send(req.query.echostr);
     }
 
-    // GET 无 echostr -> 返回管理页面
+    // GET 无 echostr -> 返回管理页面（需登录）
     if (req.method === 'GET') {
+      if (!req.session || !req.session.openid) {
+        return res.redirect('/auth/login');
+      }
       const htmlPath = path.join(__dirname, 'index.html');
       if (fs.existsSync(htmlPath)) {
         return res.sendFile(htmlPath);
@@ -515,6 +531,100 @@ app.all('/api/wework-webhook', async (req, res) => {
     console.error('企微处理失败:', error);
     res.send('success');
   }
+});
+
+// =================== 微信 OAuth2 登录 ===================
+
+function getAdminOpenids() {
+  return (process.env.ADMIN_OPENIDS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function requireAuth(req, res, next) {
+  if (req.path === '/wework-webhook') return next();
+  if (!req.session || !req.session.openid) {
+    return res.status(401).json({ success: false, message: '未登录', login_url: '/auth/login' });
+  }
+  next();
+}
+
+// 对所有 /api/* 进行鉴权（/api/wework-webhook 已在 requireAuth 中豁免）
+app.use('/api', requireAuth);
+
+// 1. 登录入口：重定向到微信授权
+app.get('/auth/login', (req, res) => {
+  const appid = CONFIG.WECHAT_APPID;
+  const redirectUri = encodeURIComponent(`https://${req.headers.host}/auth/callback`);
+  const url = `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${appid}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_base&state=123#wechat_redirect`;
+  res.redirect(url);
+});
+
+// 2. 授权回调：用 code 换 openid
+app.get('/auth/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return res.status(400).send('<h2>授权失败</h2><p>未获取到 code，请重试。</p>');
+  }
+
+  try {
+    const wxRes = await axios.get('https://api.weixin.qq.com/sns/oauth2/access_token', {
+      params: {
+        appid: CONFIG.WECHAT_APPID,
+        secret: CONFIG.WECHAT_SECRET,
+        code,
+        grant_type: 'authorization_code'
+      },
+      timeout: 10000
+    });
+
+    const { openid, errcode, errmsg } = wxRes.data;
+    if (errcode) throw new Error(errmsg);
+    if (!openid) throw new Error('微信未返回 openid');
+
+    const whitelist = getAdminOpenids();
+
+    if (whitelist.length === 0) {
+      return res.status(403).send(`
+        <h2>系统尚未配置管理员</h2>
+        <p>你的 openid：<code style="background:#f5f5f5;padding:2px 6px;">${openid}</code></p>
+        <p>请将此 openid 添加到环境变量 <code>ADMIN_OPENIDS</code> 后重新部署。</p>
+        <p><a href="/">返回首页</a></p>
+      `);
+    }
+
+    if (!whitelist.includes(openid)) {
+      return res.status(403).send(`
+        <h2>无权限访问</h2>
+        <p>你的 openid 不在白名单中。</p>
+        <p>你的 openid：<code style="background:#f5f5f5;padding:2px 6px;">${openid}</code></p>
+        <p>请将上述 openid 添加到环境变量 <code>ADMIN_OPENIDS</code> 后重新部署。</p>
+        <p><a href="/">返回首页</a></p>
+      `);
+    }
+
+    req.session.openid = openid;
+    console.log('用户登录成功:', openid);
+    res.redirect('/');
+  } catch (err) {
+    console.error('登录回调处理失败:', err.message);
+    res.status(500).send(`<h2>登录失败</h2><p>${err.message}</p><p><a href="/">返回首页</a></p>`);
+  }
+});
+
+// 3. 退出登录
+app.post('/auth/logout', (req, res) => {
+  req.session = null;
+  res.json({ success: true });
+});
+
+// 4. 获取当前登录用户信息
+app.get('/api/me', (req, res) => {
+  if (!req.session || !req.session.openid) {
+    return res.status(401).json({ success: false, message: '未登录' });
+  }
+  res.json({ success: true, openid: req.session.openid });
 });
 
 // 通用：格式化图文列表

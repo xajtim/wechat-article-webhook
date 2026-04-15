@@ -250,6 +250,11 @@
     <h1>公众号文章活码管理</h1>
     <div class="subtitle">在发布文章前，自动生成企微活码并写入“阅读原文”</div>
 
+    <div id="userBar" style="display:flex;justify-content:center;align-items:center;gap:10px;margin:-10px 0 20px 0;min-height:28px;">
+      <span id="userInfo" style="font-size:13px;color:#666;"></span>
+      <button id="logoutBtn" class="secondary" style="display:none;font-size:12px;padding:4px 10px;" onclick="logout()">退出登录</button>
+    </div>
+
     <div class="ip-bar" id="ipBar">
       <span id="ipText">正在检测代理服务状态...</span>
       <button onclick="checkProxy()">检测代理</button>
@@ -332,6 +337,7 @@
 
     // 页面加载时自动检测
     checkProxy();
+    loadUser();
 
     async function loadContactWays() {
       const box = document.getElementById('contactWaysBox');
@@ -532,6 +538,32 @@
         const curLabel = (!curIndex || curIndex === 0) ? '主推' : `辅推${curIndex}`;
         btn.textContent = `生成活码并更新阅读原文（${curLabel}）`;
       }
+    }
+
+    async function loadUser() {
+      try {
+        const res = await fetch('/api/me');
+        const data = await res.json();
+        const info = document.getElementById('userInfo');
+        const btn = document.getElementById('logoutBtn');
+        if (data.success && data.openid) {
+          info.textContent = '已登录：' + data.openid.slice(0, 10) + '...';
+          btn.style.display = 'inline-block';
+        } else {
+          info.innerHTML = '<a href="/auth/login" style="color:#576b95;text-decoration:none;">🔒 点击微信登录</a>';
+          btn.style.display = 'none';
+        }
+      } catch (e) {
+        document.getElementById('userInfo').innerHTML = '<a href="/auth/login" style="color:#576b95;text-decoration:none;">🔒 点击微信登录</a>';
+        document.getElementById('logoutBtn').style.display = 'none';
+      }
+    }
+
+    async function logout() {
+      try {
+        await fetch('/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      window.location.href = '/auth/login';
     }
 
     function escapeHtml(text) {
