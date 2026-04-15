@@ -253,10 +253,36 @@ app.all('/', async (req, res) => {
       return res.send(req.query.echostr);
     }
 
-    // GET 无 echostr -> 返回管理页面（需登录）
+    // GET 无 echostr -> 返回登录选择页或管理页面
     if (req.method === 'GET') {
       if (!req.session || !req.session.openid) {
-        return res.redirect('/auth/login');
+        return res.send(`
+          <!DOCTYPE html>
+          <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>登录 - 公众号文章活码管理</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; background: #f5f6f7; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+              .box { background: #fff; padding: 40px 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); width: 320px; text-align: center; }
+              h2 { margin: 0 0 24px 0; font-size: 18px; }
+              .btn { display: block; width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; text-decoration: none; margin-bottom: 12px; }
+              .btn-wechat { background: #07c160; color: #fff; }
+              .btn-wework { background: #2f54eb; color: #fff; }
+              .hint { font-size: 12px; color: #999; margin-top: 16px; line-height: 1.6; }
+            </style>
+          </head>
+          <body>
+            <div class="box">
+              <h2>公众号文章活码管理</h2>
+              <a href="/auth/login" class="btn btn-wechat">📱 微信登录</a>
+              <a href="/auth/wework/login" class="btn btn-wework">🏢 企业微信登录</a>
+              <div class="hint">手机微信内访问请点"微信登录"<br>PC 端访问请点"企业微信登录"</div>
+            </div>
+          </body>
+          </html>
+        `);
       }
       const htmlPath = path.join(__dirname, 'index.html');
       if (fs.existsSync(htmlPath)) {
@@ -542,10 +568,17 @@ function getAdminOpenids() {
     .filter(Boolean);
 }
 
+function getAdminUserids() {
+  return (process.env.ADMIN_USERIDS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 function requireAuth(req, res, next) {
   if (req.path === '/wework-webhook') return next();
   if (!req.session || !req.session.openid) {
-    return res.status(401).json({ success: false, message: '未登录', login_url: '/auth/login' });
+    return res.status(401).json({ success: false, message: '未登录', login_url: '/' });
   }
   next();
 }
@@ -640,60 +673,78 @@ app.get('/auth/callback', async (req, res) => {
   }
 });
 
-// PC 端备用：管理员密码登录
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
-
-app.get('/auth/password', (req, res) => {
-  if (!ADMIN_PASSWORD) {
-    return res.status(403).send(`
-      <h2>未启用密码登录</h2>
-      <p>管理员未配置 <code>ADMIN_PASSWORD</code> 环境变量。</p>
-      <p><a href="/auth/login">返回微信登录</a></p>
+// 3. 企业微信 OAuth2 登录
+app.get('/auth/wework/login', (req, res) => {
+  const corpid = CONFIG.CORPID;
+  const agentid = process.env.WEWORK_AGENTID;
+  if (!agentid) {
+    return res.status(500).send(`
+      <h2>未配置企业微信应用 ID</h2>
+      <p>请在环境变量中设置 <code>WEWORK_AGENTID</code> 后重试。</p>
+      <p><a href="/">返回首页</a></p>
     `);
   }
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理员登录</title>
-    <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; background: #f5f6f7; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-      .box { background: #fff; padding: 32px; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); width: 320px; }
-      h2 { margin: 0 0 20px 0; font-size: 18px; text-align: center; }
-      input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; margin-bottom: 12px; box-sizing: border-box; }
-      button { width: 100%; padding: 10px; background: #07c160; color: #fff; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; }
-      .hint { font-size: 12px; color: #999; text-align: center; margin-top: 12px; }
-    </style></head>
-    <body>
-      <div class="box">
-        <h2>管理员密码登录</h2>
-        <form method="POST" action="/auth/password">
-          <input type="password" name="password" placeholder="请输入管理员密码" required />
-          <button type="submit">登录</button>
-        </form>
-        <div class="hint"><a href="/auth/login" style="color:#576b95;text-decoration:none;">使用微信登录</a></div>
-      </div>
-    </body></html>
-  `);
+  const redirectUri = encodeURIComponent(`https://${req.headers.host}/auth/wework/callback`);
+  const url = `https://open.weixin.qq.com/connect/oauth2/authorize?appid=${corpid}&redirect_uri=${redirectUri}&response_type=code&scope=snsapi_base&state=wework&agentid=${agentid}#wechat_redirect`;
+  res.redirect(url);
 });
 
-app.post('/auth/password', express.urlencoded({ extended: true }), (req, res) => {
-  if (!ADMIN_PASSWORD) {
-    return res.status(403).send('未启用密码登录');
+app.get('/auth/wework/callback', async (req, res) => {
+  const { code } = req.query;
+
+  if (req.session && req.session.openid) {
+    return res.redirect('/');
   }
-  const { password } = req.body || {};
-  if (password !== ADMIN_PASSWORD) {
-    return res.status(401).send(`
-      <h2>密码错误</h2>
-      <p><a href="/auth/password">重新输入</a></p>
-    `);
+
+  if (!code) {
+    return res.status(400).send('<h2>授权失败</h2><p>未获取到 code，请重试。</p>');
   }
-  req.session.openid = 'admin-password';
-  console.log('管理员密码登录成功');
-  res.redirect('/');
+
+  try {
+    const weworkToken = await getWeworkToken();
+    const result = await axios.get('https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo', {
+      params: {
+        access_token: weworkToken,
+        code
+      },
+      timeout: 10000
+    });
+
+    const { UserId, errcode, errmsg } = result.data;
+    if (errcode) throw new Error(errmsg);
+    if (!UserId) throw new Error('企业微信未返回 UserId，请确认使用企业微信扫码/打开');
+
+    const whitelist = getAdminUserids();
+    if (whitelist.length === 0) {
+      return res.status(403).send(`
+        <h2>系统尚未配置管理员</h2>
+        <p>你的 UserId：<code style="background:#f5f5f5;padding:2px 6px;">${UserId}</code></p>
+        <p>请将此 UserId 添加到环境变量 <code>ADMIN_USERIDS</code> 后重新部署。</p>
+        <p><a href="/">返回首页</a></p>
+      `);
+    }
+
+    if (!whitelist.includes(UserId)) {
+      return res.status(403).send(`
+        <h2>无权限访问</h2>
+        <p>你的 UserId 不在白名单中。</p>
+        <p>你的 UserId：<code style="background:#f5f5f5;padding:2px 6px;">${UserId}</code></p>
+        <p>请将上述 UserId 添加到环境变量 <code>ADMIN_USERIDS</code> 后重新部署。</p>
+        <p><a href="/">返回首页</a></p>
+      `);
+    }
+
+    req.session.openid = UserId;
+    req.session.loginType = 'wework';
+    console.log('企微用户登录成功:', UserId);
+    res.redirect('/');
+  } catch (err) {
+    console.error('企微登录回调处理失败:', err.message);
+    res.status(500).send(`<h2>登录失败</h2><p>${err.message}</p><p><a href="/">返回首页</a></p>`);
+  }
 });
 
-// 3. 退出登录
+// 4. 退出登录
 app.post('/auth/logout', (req, res) => {
   req.session = null;
   res.json({ success: true });
