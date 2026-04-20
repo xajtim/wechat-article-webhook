@@ -136,7 +136,7 @@ async function createAcquisitionLink(accessToken, title, mediaId, articleIndex =
     method: 'POST',
     headers: { 'x-auth-key': PROXY_AUTH },
     data: {
-      link_name: `公众号-${title}`,
+      link_name: `公众号-${title}`.slice(0, 30),
       range: {
         user_list: [CONFIG.USER_ID]
       },
